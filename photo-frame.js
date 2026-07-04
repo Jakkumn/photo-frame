@@ -293,8 +293,14 @@ class PhotoFrame extends HTMLElement
         this._photoContainerRef = document.createElement( "div" );
         this._photoContainerRef.className = "photo-container";
         this._photoContainerRef.style.aspectRatio = this._config.aspect_ratio || "16/9";
-        this._photoContainerRef.style.width = "auto";
+        this._photoContainerRef.style.width = "100%";
         this._photoContainerRef.style.height = "auto";
+        // Cap to the height Home Assistant actually allocates for the card. In Sections view
+        // the grid stretches the cell to a fixed (row-quantized) height that can be shorter
+        // than the aspect-ratio height; without this cap the image draws taller than the card
+        // and spills out. When the view lets the cell grow (e.g. Masonry) this is a no-op and
+        // the aspect ratio drives the height as before.
+        this._photoContainerRef.style.maxHeight = "100%";
         this._photoContainerRef.style.overflow = "hidden";
         this._photoContainerRef.style.display = "flex";
         this._photoContainerRef.style.alignItems = "center";
