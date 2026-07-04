@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
     rounded_corners                    : true,
     borderless                         : false,
     images_sensor                      : 'sensor.photo_frame_images',
+    immich_album                       : "",
     slide_show_interval                : 2000,
     slide_show_mode                    : "random",
     fade_duration                      : 1000,
@@ -746,10 +747,13 @@ class PhotoFrame extends HTMLElement
         }
 
         /** @type {string[]} */
-        this.log( "Retrieving current image list from sensor" );
-        const result = this._config.use_custom_media_files_integration
-                       ? await this.getImageFilesFromMediaFilesIntegration()
-                       : this.getImageFilesFromFolderSensor();
+        this.log( "Retrieving current image list" );
+        const useImmichAlbum = !!this._config.immich_album;
+        const result = useImmichAlbum
+                       ? await this.getImageFilesFromImmichAlbum()
+                       : this._config.use_custom_media_files_integration
+                         ? await this.getImageFilesFromMediaFilesIntegration()
+                         : this.getImageFilesFromFolderSensor();
 
         if ( result.lastChangedMarker === state.imageListLastChangedMarker )
         {
@@ -761,8 +765,12 @@ class PhotoFrame extends HTMLElement
             this.log( `Image list changed. Old marker: ${state.imageListLastChangedMarker}, new marker: ${result.lastChangedMarker}` );
         }
 
-        state.imageList = result.fileList.filter( file => cardConfig.file_type_filter_regexp.test( file ) )
-                                         .sort( ( a, b ) => this.imageCompareFunction( a, b ) );
+        // In Immich mode the entries are already resolvable media-source ids (no filename
+        // extension), so the file-type filter is skipped and only ordering is applied.
+        state.imageList = ( useImmichAlbum
+                            ? result.fileList
+                            : result.fileList.filter( file => cardConfig.file_type_filter_regexp.test( file ) ) )
+                          .sort( ( a, b ) => this.imageCompareFunction( a, b ) );
         state.indexHistory = [];
         state.imageListLastUpdatedTimestamp = now;
         state.imageListLastChangedMarker = result.lastChangedMarker;
@@ -807,6 +815,45 @@ class PhotoFrame extends HTMLElement
         return {
             fileList: sensor.attributes.file_list || [],
             lastChangedMarker: sensor.last_changed,
+        };
+    }
+
+    /**
+     * Retrieves the list of image assets from an Immich album exposed by the
+     * official Immich integration's media source.
+     *
+     * this._config.immich_album must be the album's media-source content id, e.g.
+     * "media-source://immich/<user-id>|albums|<album-id>" (copy it from the HA media browser).
+     *
+     * Each returned entry is a fully-qualified media-source content id that
+     * resolveWebUrlPath() resolves directly (no local media_source prefix).
+     *
+     * NOTE: relies on browse_media returning the whole album in one response. Very large
+     * albums may be paginated by the integration; if so, only the first page is shown.
+     *
+     * @returns {Promise<{fileList: string[], lastChangedMarker: string}>}
+     */
+    async getImageFilesFromImmichAlbum()
+    {
+        const response = await this._hass.callWS( {
+            type: "media_source/browse_media",
+            media_content_id: this._config.immich_album,
+        } );
+
+        // Keep only leaf image assets. media_class is the reliable discriminator;
+        // fall back to all non-expandable children if the integration omits it.
+        let children = ( response.children || [] ).filter( child => !child.can_expand );
+        const imageChildren = children.filter( child => child.media_class === "image" );
+        if ( imageChildren.length > 0 )
+        {
+            children = imageChildren;
+        }
+
+        const fileList = children.map( child => child.media_content_id );
+        return {
+            fileList: fileList,
+            // Marker changes when the album's asset set changes, triggering a re-shuffle.
+            lastChangedMarker: `immich:${fileList.length}:${fileList.join( "" ).length}`,
         };
     }
 
@@ -895,7 +942,11 @@ class PhotoFrame extends HTMLElement
      */
     async resolveWebUrlPath( internalImageFilePath )
     {
-        const mediaUri = "media-source://media_source" + internalImageFilePath;
+        // Immich entries are already fully-qualified media-source ids; local folder
+        // entries are paths that need the local media_source scheme prepended.
+        const mediaUri = this._config.immich_album
+                         ? internalImageFilePath
+                         : "media-source://media_source" + internalImageFilePath;
         this.log( `Resolving web url path for: ${mediaUri}` );
         return this._hass.callWS( {type: "media_source/resolve_media", media_content_id: mediaUri} )
                    .then( response => response.url );
@@ -1002,6 +1053,7 @@ class PhotoFrame extends HTMLElement
                     schema:
                         [
                             { name: "images_sensor", required: false, selector: { entity: { filter: { domain: "sensor", integration: "folder" } } } },
+                            { name: "immich_album", required: false, selector: { text: {} } },
                             {
                                 name: "",
                                 type: "grid",
@@ -1083,6 +1135,7 @@ class PhotoFrame extends HTMLElement
                 if (schema.name === "borderless") return "Borderless";
                 /* Slideshow section */
                 if (schema.name === "images_sensor") return "Images Sensor Entity";
+                if (schema.name === "immich_album") return "Immich Album (media-source id)";
                 if (schema.name === "slide_show_interval") return "Slide Show Interval";
                 if (schema.name === "slide_show_mode") return "Slide Show Mode";
                 if (schema.name === "fade_duration") return "Fade Duration";
@@ -1131,6 +1184,8 @@ class PhotoFrame extends HTMLElement
                     /* Slideshow section */
                     case "images_sensor":
                         return "Entity ID of the folder sensor that provides the list of images";
+                    case "immich_album":
+                        return "Optional. Immich album media-source content id from the HA media browser, e.g. media-source://immich/<user-id>|albums|<album-id>. When set, images come from this album instead of the folder sensor";
                     case "slide_show_interval":
                         return "Interval between photos in milliseconds";
                     case "slide_show_mode":

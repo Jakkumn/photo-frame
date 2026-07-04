@@ -6,7 +6,7 @@
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "https://github.com/tienducle/photo-frame.git"
+    "url": "https://github.com/Jakkumn/photo-frame.git"
   },
   "keywords": [
     "photo",
@@ -21,9 +21,9 @@
   "author": "Tien Duc Le",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/tienducle/photo-frame/issues"
+    "url": "https://github.com/Jakkumn/photo-frame/issues"
   },
-  "homepage": "https://github.com/tienducle/photo-frame#readme",
+  "homepage": "https://github.com/Jakkumn/photo-frame#readme",
   "devDependencies": {},
   "dependencies": {}
 }
