@@ -24,8 +24,7 @@ const DEFAULT_CONFIG = {
     use_custom_media_files_integration : false,
     media_folder                       : "/media/photo-frame-images",
     grid_options                       : {
-        columns: 12,
-        rows   : "auto"
+        columns: 12
     },
     image_list_refresh_interval        : 60000, // 60 seconds
     disable_native_browser_interactions: true
@@ -272,30 +271,6 @@ class PhotoFrame extends HTMLElement
     }
 
     /**
-     * Makes the custom element, ha-card and card-content stretch to the height that
-     * Home Assistant allocates via grid_options, so a fill-mode image can size to it
-     * instead of imposing its own aspect ratio (which can overflow the grid cell).
-     */
-    stretchCardToFillGridCell()
-    {
-        this.style.display = "block";
-        this.style.height = "100%";
-
-        const haCard = this.querySelector( "ha-card" );
-        if ( haCard )
-        {
-            haCard.style.height = "100%";
-            haCard.style.display = "flex";
-            haCard.style.flexDirection = "column";
-        }
-
-        // card-content takes the remaining height below the (optional) header
-        this._cardContainerRef.style.flex = "1 1 auto";
-        this._cardContainerRef.style.minHeight = "0";
-        this._cardContainerRef.style.boxSizing = "border-box";
-    }
-
-    /**
      * Initializes the photo container and image element.
      * This only needs to be done once, when the card transitions from the help text to showing a photo.
      */
@@ -317,23 +292,9 @@ class PhotoFrame extends HTMLElement
         // Create photo container
         this._photoContainerRef = document.createElement( "div" );
         this._photoContainerRef.className = "photo-container";
-
-        // "fill" (or an empty aspect_ratio) lets Home Assistant's grid_options own the
-        // card size and fits the image inside it. Any other value keeps the previous
-        // behaviour of the container driving its own aspect ratio.
-        const fillMode = !this._config.aspect_ratio || this._config.aspect_ratio === "fill";
-        if ( fillMode )
-        {
-            this._photoContainerRef.style.width = "100%";
-            this._photoContainerRef.style.height = "100%";
-            this.stretchCardToFillGridCell();
-        }
-        else
-        {
-            this._photoContainerRef.style.aspectRatio = this._config.aspect_ratio;
-            this._photoContainerRef.style.width = "auto";
-            this._photoContainerRef.style.height = "auto";
-        }
+        this._photoContainerRef.style.aspectRatio = this._config.aspect_ratio || "16/9";
+        this._photoContainerRef.style.width = "auto";
+        this._photoContainerRef.style.height = "auto";
         this._photoContainerRef.style.overflow = "hidden";
         this._photoContainerRef.style.display = "flex";
         this._photoContainerRef.style.alignItems = "center";
@@ -1076,7 +1037,7 @@ class PhotoFrame extends HTMLElement
                     schema:
                         [
                             { name: "card_mode", required: true, selector: { select: { options: [ "grid", "single-card-panel" ], mode: "dropdown" } } },
-                            { name: "aspect_ratio", required: true, selector: { select: { options: [ "fill", "16/10", "16/9", "4/3", "3/2", "1/1", "2/3", "3/4", "9/16", "10/16" ], mode: "dropdown" } } },
+                            { name: "aspect_ratio", required: true, selector: { select: { options: [ "16/10", "16/9", "4/3", "3/2", "1/1", "2/3", "3/4", "9/16", "10/16" ], mode: "dropdown" } } },
                             { name: "rounded_corners", selector: { boolean: { } } },
                             { name: "borderless", selector: { boolean: { } } }
                         ]
@@ -1292,15 +1253,23 @@ class PhotoFrame extends HTMLElement
     // The rules for sizing your card in the grid in sections view
     getGridOptions()
     {
-        return {
-            //rows: "auto", // should be dynamic based on columns value
-            rows    : this._config.grid_options.rows,
-            columns : this._config.grid_options.columns,
-            min_rows: 0, // should be dynamic based on columns value
-            //max_rows: 0, // should be dynamic based on columns value
+        const gridOptions = {
+            columns    : this._config.grid_options.columns,
             min_columns: 3
-            //max_columns: "full"
         };
+
+        // Only pin a row count when a concrete number is given. Otherwise leave "rows"
+        // undefined so the card takes its natural (aspect-ratio) height instead of being
+        // forced into a fixed row count that its content overflows. Note: "auto" is NOT a
+        // valid Home Assistant rows value — rows must be a number or omitted entirely.
+        const rows = this._config.grid_options.rows;
+        if ( typeof rows === "number" )
+        {
+            gridOptions.rows = rows;
+            gridOptions.min_rows = 0;
+        }
+
+        return gridOptions;
     }
 }
 
